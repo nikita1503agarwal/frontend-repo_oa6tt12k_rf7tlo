@@ -1,70 +1,109 @@
+import { useState } from 'react'
+import URLInput from './components/URLInput'
+import Results from './components/Results'
+import Player from './components/Player'
+
+const API_BASE = import.meta.env.VITE_BACKEND_URL || ''
+
+async function api(path, params={}) {
+  const url = new URL(API_BASE + path)
+  Object.entries(params).forEach(([k,v]) => {
+    if (v !== undefined && v !== null) url.searchParams.set(k, v)
+  })
+  const r = await fetch(url.toString())
+  if (!r.ok) throw new Error('Request failed')
+  return r.json()
+}
+
 function App() {
+  const [links, setLinks] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [results, setResults] = useState(null)
+  const [videoId, setVideoId] = useState(null)
+  const [activeClip, setActiveClip] = useState(null)
+
+  const handleSubmit = async (url) => {
+    setLoading(true)
+    setActiveClip(null)
+    setResults(null)
+    setLinks([])
+    try {
+      // If it's a video URL, go straight to suggestions
+      const direct = await api('/suggest_clips', { url })
+      if (direct?.available && direct?.video_id) {
+        const meta = await api('/oembed', { url })
+        setVideoId(direct.video_id)
+        setResults({ metadata: meta, clips: direct.clips })
+        setLoading(false)
+        return
+      }
+      // Otherwise, treat as page/channel and scrape links
+      const data = await api('/scrape_links', { url })
+      setLinks(data.links)
+      setLoading(false)
+    } catch (e) {
+      console.error(e)
+      setLoading(false)
+    }
+  }
+
+  const handlePickLink = async (link) => {
+    setLoading(true)
+    setActiveClip(null)
+    try {
+      const direct = await api('/suggest_clips', { url: link })
+      const meta = await api('/oembed', { url: link })
+      setVideoId(direct.video_id)
+      setResults({ metadata: meta, clips: direct.clips })
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Subtle pattern overlay */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.05),transparent_50%)]"></div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
+      <div className="max-w-5xl mx-auto px-6 py-12">
+        <header className="text-center mb-10">
+          <h1 className="text-4xl font-bold tracking-tight">Viral Clip Finder</h1>
+          <p className="text-slate-300 mt-2">Paste a YouTube URL. We find punchy, shareable moments using free endpoints.</p>
+        </header>
 
-      <div className="relative min-h-screen flex items-center justify-center p-8">
-        <div className="max-w-2xl w-full">
-          {/* Header with Flames icon */}
-          <div className="text-center mb-12">
-            <div className="inline-flex items-center justify-center mb-6">
-              <img
-                src="/flame-icon.svg"
-                alt="Flames"
-                className="w-24 h-24 drop-shadow-[0_0_25px_rgba(59,130,246,0.5)]"
-              />
-            </div>
-
-            <h1 className="text-5xl font-bold text-white mb-4 tracking-tight">
-              Flames Blue
-            </h1>
-
-            <p className="text-xl text-blue-200 mb-6">
-              Build applications through conversation
-            </p>
-          </div>
-
-          {/* Instructions */}
-          <div className="bg-slate-800/50 backdrop-blur-sm border border-blue-500/20 rounded-2xl p-8 shadow-xl mb-6">
-            <div className="flex items-start gap-4 mb-6">
-              <div className="flex-shrink-0 w-8 h-8 bg-blue-500 text-white rounded-lg flex items-center justify-center font-bold">
-                1
-              </div>
-              <div>
-                <h3 className="font-semibold text-white mb-1">Describe your idea</h3>
-                <p className="text-blue-200/80 text-sm">Use the chat panel on the left to tell the AI what you want to build</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-4 mb-6">
-              <div className="flex-shrink-0 w-8 h-8 bg-blue-500 text-white rounded-lg flex items-center justify-center font-bold">
-                2
-              </div>
-              <div>
-                <h3 className="font-semibold text-white mb-1">Watch it build</h3>
-                <p className="text-blue-200/80 text-sm">Your app will appear in this preview as the AI generates the code</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 w-8 h-8 bg-blue-500 text-white rounded-lg flex items-center justify-center font-bold">
-                3
-              </div>
-              <div>
-                <h3 className="font-semibold text-white mb-1">Refine and iterate</h3>
-                <p className="text-blue-200/80 text-sm">Continue the conversation to add features and make changes</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="text-center">
-            <p className="text-sm text-blue-300/60">
-              No coding required • Just describe what you want
-            </p>
-          </div>
+        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 mb-8">
+          <URLInput onSubmit={handleSubmit} />
+          {loading && (
+            <div className="mt-6 text-sm text-slate-300">Analyzing…</div>
+          )}
         </div>
+
+        {links.length > 0 && (
+          <div className="mb-8">
+            <h3 className="text-lg font-semibold mb-3">Found {links.length} videos</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {links.map((l) => (
+                <button key={l} onClick={() => handlePickLink(l)} className="text-left p-3 rounded-xl bg-slate-800/60 border border-slate-700 hover:bg-slate-700/40">
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {results && (
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+            <div className="lg:col-span-3 order-2 lg:order-1">
+              <Player videoId={videoId} clip={activeClip || results?.clips?.[0]} />
+            </div>
+            <div className="lg:col-span-2 space-y-4 order-1 lg:order-2">
+              <Results results={results} onPreview={setActiveClip} />
+            </div>
+          </div>
+        )}
+
+        {!loading && !results && links.length === 0 && (
+          <div className="text-center text-slate-400">Paste a link to get started</div>
+        )}
       </div>
     </div>
   )
